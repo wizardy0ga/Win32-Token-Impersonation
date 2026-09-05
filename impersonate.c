@@ -92,7 +92,8 @@ int wmain( int argc, wchar_t* argv[] ) {
 		puts(L"An invalid data type was supplied for the process id.");
 		return -1;
 	}
-	
+	print( L"The id for this process is %d", GetCurrentProcessId() );
+
 	// --- Step 1: Get the current running process token
 	if ( !OpenProcessToken( (HANDLE)-1, TOKEN_QUERY | TOKEN_ADJUST_PRIVILEGES, &hCurrentToken ) ) {
 		apiputs( L"OpenProcessToken" );
@@ -158,6 +159,12 @@ cleanup:
 
 	if ( hImpersonatedToken )
 		CloseHandle( hImpersonatedToken );
+
+	if ( target_user )
+		free( ( void* )target_user );
+
+	if ( current_user )
+		free( ( void* )current_user );
 
 	getchar();
 	print("Cleanly finished");
